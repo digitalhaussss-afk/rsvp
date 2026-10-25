@@ -1,0 +1,47 @@
+<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Konfirmasi Kehadiran · The Wedding Space</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#f9f8ff;font:15px/1.6 Inter,system-ui,sans-serif;color:#2d2848}main{max-width:650px;margin:30px auto;padding:clamp(18px,4vw,34px);background:#fff;border-radius:20px;box-shadow:0 10px 36px #3d356419}h1{font:600 clamp(25px,4vw,34px) Georgia,serif;line-height:1.2;margin:8px 0 18px}label{display:block;font-weight:600;margin-top:15px}input,select,textarea{margin-top:6px;width:100%;min-height:44px;padding:10px 12px;border:1px solid #d8d5e5;border-radius:10px;background:#fff;color:#27223d;font:inherit}input[type=checkbox]{width:auto;min-height:auto;margin-right:8px}button{border:0;background:#6553a7;color:#fff;border-radius:11px;padding:12px 20px;font:700 15px system-ui;cursor:pointer;margin-top:21px;width:100%}button:disabled{opacity:.6}.muted{color:#77728a;font-size:13px}.status{padding:12px;border-radius:10px;background:#f1effc;margin:15px 0;color:#3d3470}.err{background:#ffedf0;color:#a33348}.field{margin:12px 0}.choice{display:flex;align-items:center;gap:6px;font-weight:400}.choice input{width:auto;margin:0;min-height:0}.hidden{display:none}#wsp-rsvp-app{min-height:140px}footer{text-align:center;color:#aaa4b4;font-size:12px;margin:10px}small{font-weight:400}</style>
+</head><body><main id="wsp-rsvp-app"><h1>RSVP · The Wedding Space</h1><p class="status">Memuat formulir RSVP…</p></main><footer>Powered by The Wedding Space</footer>
+<script>
+(()=>{'use strict';
+const endpoint='https://iasmuancxrlkfxhtacsu.supabase.co/functions/v1/wsp-rsvp';
+const token=new URLSearchParams(location.search).get('guest_token')||'';
+const root=document.querySelector('#wsp-rsvp-app');
+const esc=x=>String(x??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+function field(q,prior){
+ const val=prior?.[q.id],id='q-'+q.id,req=q.is_required?' *':'';
+ let input='';const choices=Array.isArray(q.choices)?q.choices:[];
+ if(q.field_type==='single_select')input=`<select id="${id}" data-q="${q.id}"><option value="">— Pilih —</option>${choices.map(c=>`<option value="${esc(c)}" ${c===val?'selected':''}>${esc(c)}</option>`).join('')}</select>`;
+ else if(q.field_type==='multi_select')input=choices.map((c,i)=>`<label class="choice"><input type="checkbox" data-q="${q.id}" value="${esc(c)}" ${Array.isArray(val)&&val.includes(c)?'checked':''}> ${esc(c)}</label>`).join('');
+ else if(q.field_type==='checkbox')input=`<label class="choice"><input type="checkbox" id="${id}" data-q="${q.id}" ${val?'checked':''}> Ya</label>`;
+ else if(q.field_type==='long_text')input=`<textarea id="${id}" data-q="${q.id}" rows="3" maxlength="2000">${esc(val??'')}</textarea>`;
+ else input=`<input id="${id}" data-q="${q.id}" type="${({email:'email',number:'number',phone:'tel',date:'date'})[q.field_type]||'text'}" ${q.field_type==='number'?'step="any"':''} maxlength="300" value="${esc(val??'')}">`;
+ return `<div class="field"><label for="${id}">${esc(q.label)}${req}</label>${input}</div>`;
+}
+async function run(){
+ if(!/^[0-9a-f]{48}$/i.test(token)){root.innerHTML='<h1>RSVP</h1><p class="status err">Link tamu belum lengkap. Silakan buka link pribadi yang dikirim oleh penyelenggara.</p>';return;}
+ try{
+  const res=await fetch(endpoint+'?guest_token='+encodeURIComponent(token),{cache:'no-store'}),data=await res.json();if(!res.ok)throw Error(data.error||'RSVP belum tersedia');
+  root.innerHTML=`<div class="muted">THE WEDDING SPACE · RSVP</div><h1>${esc(data.form.title)}</h1><p>Halo, <b>${esc(data.guest.name)}</b>. Mohon konfirmasi kehadiran kamu.</p><form id="wsp-form"><label for="attendance">Konfirmasi kehadiran *</label><select id="attendance" required><option value="attending">Hadir</option><option value="not_attending">Tidak hadir</option><option value="maybe">Belum pasti</option></select><label for="attendeeCount">Jumlah tamu yang hadir (maksimal ${data.guest.max_attending})</label><input id="attendeeCount" type="number" min="0" max="${data.guest.max_attending}" value="1" required><section id="wsp-fields">${data.questions.map(q=>field(q,data.response?.answers)).join('')}</section><label for="wsp-msg">Pesan untuk pasangan (opsional)</label><textarea id="wsp-msg" rows="3" maxlength="1000">${esc(data.response?.message||'')}</textarea><button id="submit" type="submit">Kirim konfirmasi</button><p id="feedback" class="status hidden" role="status"></p></form>`;
+  const form=root.querySelector('#wsp-form'),attendance=form.querySelector('#attendance'),count=form.querySelector('#attendeeCount');
+  if(data.response){attendance.value=data.response.attendance;count.value=data.response.attendee_count;}
+  function update(){const attending=attendance.value==='attending';count.disabled=!attending;if(!attending)count.value=0;else if(Number(count.value)<1)count.value=1;}
+  attendance.addEventListener('change',update);update();
+  form.addEventListener('submit',async e=>{
+   e.preventDefault();const btn=form.querySelector('#submit'),fb=form.querySelector('#feedback');fb.className='status';fb.textContent='Mengirim RSVP…';btn.disabled=true;
+   try{
+    const answers={};for(const q of data.questions){const elements=[...form.querySelectorAll('[data-q="'+q.id+'"]')],el=elements[0];if(!el)continue;
+      let val;if(q.field_type==='multi_select')val=elements.filter(x=>x.checked).map(x=>x.value);
+      else if(q.field_type==='checkbox')val=el.checked;
+      else if(q.field_type==='number')val=el.value.trim()===''?'':Number(el.value);
+      else val=el.value.trim();
+      if(val!==''&&val!==false&&(!Array.isArray(val)||val.length))answers[q.id]=val;
+    }
+    const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({guest_token:token,attendance:attendance.value,attendee_count:Number(count.value),answers,message:form.querySelector('#wsp-msg').value})});
+    const result=await response.json();if(!response.ok)throw Error(result.error||'Gagal menyimpan RSVP');fb.textContent='✅ RSVP berhasil disimpan. Terima kasih!';
+   }catch(err){fb.className='status err';fb.textContent=err.message||'Gagal menyimpan RSVP.'}finally{btn.disabled=false}
+  });
+ }catch(err){root.innerHTML='<h1>RSVP</h1><p class="status err">'+esc(err.message||'Gagal memuat RSVP')+'</p>'}
+}
+run();
+})();
+</script></body></html>
